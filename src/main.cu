@@ -13,32 +13,45 @@ using namespace std;
 #define INPUT_ERROR         -1
 
 // Define Constant values
-#define MIN_VALUE          -10000.0
-#define MAX_VALUE           10000.0
+#define MIN_VALUE          -100.0
+#define MAX_VALUE           100.0
 
 #define WARP_SIZE           32
 #define MAX_BLOCK_THREADS   512
 #define MAX_WARPS_BLOCK_Y   16
 #define MIN_WARPS_BLOCK_Y   1
 
+#define VERBOSE
 
-#define ERROR_THRESHOLD     10e-1
+
+#define ERROR_THRESHOLD     100
 
 const char Result[2][10] = {"SUCCEDED", "FAILED"};
+
+typedef struct{
+    dim3 block;
+    dim3 grid;
+    int s_mem;
+}BestSplit;
+
+
+
+BestSplit findBestSplit(int n, int d);
+
 
 void cudaGPUDetails();
 void printData(float *dataset, int n, int d);
 void calculateDistances(float *distances, float *dataset, float *point, int n, int d);
 
 
-void parallelReduce(float *data, int n, int d);
+void parallelReduce(float *distances, float *data, int n, int d);
 void serialReduce(float *sum, float *data, int n, int d);
 
 __global__ void deviceCalculatedDistances(float *dist, float *data, float *point, int n, int d);
 
 
-
-__global__ void cudaDotProduct(float *dataset, float *point, float *product, int n, int d);
+__global__ void cudaReduce(float *temp, float *distances, int n, int d, int r);
+__global__ void cudaDotProduct(float *dataset, float *point, float *product, int n, int d, int r);
 
 
 int main(int argc, char *argv[]){
@@ -57,6 +70,7 @@ int main(int argc, char *argv[]){
     float *d_point = NULL;
     float *d_dataset = NULL;
     float *d_distances = NULL;
+
 
     if(argc != 3){
         cout << "Wrong number of arguments. Aborting ..." << endl;
@@ -104,8 +118,11 @@ int main(int argc, char *argv[]){
 
     auto finish = std::chrono::high_resolution_clock::now();
     auto cpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
-    cout << "CPU TIME: " << cpu_time << endl;
-    //std::cout << "CPU Time: "<<std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count() << " ns\n";
+
+    // cout << "Dataset" << endl;
+    // printData(h_dataset, n, d);
+    // cout << "Distances by CPU" << endl;
+    //printData(h_test_distances, n, 1);
 
 
     // cuda stuff
@@ -113,52 +130,38 @@ int main(int argc, char *argv[]){
     cudaMalloc(&d_point, d * sizeof(float)); 
     cudaMalloc(&d_distances, n * sizeof(float)); 
 
-
-
-    start = std::chrono::high_resolution_clock::now();
-
     // copy the dataset to the device
     cudaMemcpy(d_dataset, h_dataset, n * d * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_point, &d_dataset[0], d * sizeof(float), cudaMemcpyHostToDevice);
 
 
-    printData(h_dataset, n, d);
-    parallelReduce(d_dataset, n , d);
+    start = std::chrono::high_resolution_clock::now();
+
+    parallelReduce(d_distances ,d_dataset, n , d);
+
+    finish = std::chrono::high_resolution_clock::now();
+    auto gpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start).count();
 
 
-
-    int block_size = 16;
-    dim3 num_of_blocks(n/block_size + (n % block_size != 0), 1);
-    dim3 threads_per_block(block_size, 8);
-    
-    //cout << "Dimensions of blocks: " << num_of_blocks.x << ", " << num_of_blocks.y << endl;
-
-    
-
-    // error checking
-    cudaError_t errSync = cudaGetLastError();
-	cudaError_t errAsync = cudaDeviceSynchronize();
-	if (errSync != cudaSuccess)
-		printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
-	if (errAsync != cudaSuccess)
-        printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
-        
 
     // copy the calculated distances back to the host
     cudaMemcpy(h_distances, d_distances, n * sizeof(float), cudaMemcpyDeviceToHost);
 
-    finish = std::chrono::high_resolution_clock::now();
-    auto gpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
-    //std::cout << "GPU Time: " << std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start).count() << " ns\n";
+    
 
-
+    #ifdef VERBOSE
+    cout << "CPU Time: " << cpu_time << endl;
+    cout << "GPU Time: " << gpu_time << endl;
     cout << "Total Speed up: " << (float)cpu_time / gpu_time << endl;
+    #endif
+
 
     // validation
     bool fail = 0;
     for(int i = 0; i < n; i++){
-        if(abs(h_test_distances[i] - h_distances[i]) > ERROR_THRESHOLD){
-            cout << "Error exeeded threshold("<< ERROR_THRESHOLD << "): " << abs(h_test_distances[i] - h_distances[i]) << endl;
+        float error = abs(pow(h_test_distances[i],2) - h_distances[i]);
+        if(error > ERROR_THRESHOLD){
+            cout << "Error exeeded threshold("<< ERROR_THRESHOLD << "): " << error << endl;
             fail = 1;
             break;
         }
@@ -166,13 +169,8 @@ int main(int argc, char *argv[]){
 
     cout << "Program: " << Result[fail] << endl;
 
-    // printData(h_distances, n ,1);
-
-
-
     cudaFree(d_dataset);
     cudaFree(d_distances);
-    
 
     free(h_distances);
     free(h_dataset);
@@ -186,17 +184,16 @@ int main(int argc, char *argv[]){
  *  Function that reduces a sum in parallel efficiently by managing kernel assignments
 */
 
-void parallelReduce(float *data, int n, int d){
-    int grid_size_x, grid_size_y;
-    int block_size_x, block_size_y;
-    
-    int req_warps_y = d / WARP_SIZE + (d % WARP_SIZE != 0);      
-    
-    float min_error = 100000.0;
-    int num_of_warps = -1;
-    int best_split = -1;
+BestSplit findBestSplit(int n, int d){
+    BestSplit split;
 
-    for(int split = 1; split < 100; split++){
+    int req_warps_y = d / WARP_SIZE  + (d % WARP_SIZE != 0);
+
+    float min_error = 100000.0;
+    int best_dividor = -1;
+    int num_of_warps = -1;
+
+    for(int split = 1; split < 1000; split++){
         float warps_in_block_y = (float)req_warps_y / split;
         
         if(MIN_WARPS_BLOCK_Y <= warps_in_block_y && warps_in_block_y <= MAX_WARPS_BLOCK_Y){
@@ -204,7 +201,7 @@ void parallelReduce(float *data, int n, int d){
             
             if(min_error > split_error){
                 min_error = split_error;
-                best_split = split;     
+                best_dividor = split;     
                 num_of_warps = warps_in_block_y;
             }
         }else if(warps_in_block_y < 1){
@@ -212,92 +209,148 @@ void parallelReduce(float *data, int n, int d){
         }
     }
 
-    block_size_y = num_of_warps * WARP_SIZE;
-    block_size_x = MAX_BLOCK_THREADS / block_size_y;
-    grid_size_y = best_split + (min_error > 0);
-    grid_size_x = n / block_size_x + (n % block_size_x != 0);
-
     
-    cout << "Block: " << block_size_x << ", " << block_size_y << endl;
-    cout << "Grid: " << grid_size_x << ", " << grid_size_y << endl;
-    cout <<  "Occupancy: " << (float)n / (block_size_x * grid_size_x) << ", " << (float)d / (block_size_y * grid_size_y) << endl;
+    split.block.y = num_of_warps * WARP_SIZE;
+    split.block.x = MAX_BLOCK_THREADS / split.block.y;
+    split.grid.x = n / split.block.x + (n % split.block.x != 0);
+    split.grid.y = best_dividor + (min_error > 0);
+
+    split.s_mem = (split.block.x + 1) * split.block.y * sizeof(float);
 
 
-    int shared_mem_size = (block_size_x + 1) * block_size_y * sizeof(float);
-
-    dim3 block(block_size_x, block_size_y);
-    dim3 grid(grid_size_x, grid_size_y);
-
+    #ifdef VERBOSE
+    //cout << "Block: " << split.block.x << ", " << split.block.y << ", " << (split.block.x + 1) * split.block.y << endl;
+    //cout << "Grid: " << split.grid.x << ", " << split.grid.y << endl;
+    //cout << "Occupancy: " << (float)n / (split.block.x * split.grid.x) << ", " << (float)d / (split.block.y * split.grid.y) << endl;
+    #endif
     
-    int temp_product_size = block_size_x * grid_size_x * grid_size_y * sizeof(float);
-    float *d_product_temp = NULL;
-    cudaMalloc(&d_product_temp, temp_product_size); 
-    float *h_product_temp = NULL;
-    h_product_temp = (float *)malloc(temp_product_size);
-
-
-    
-    auto start = std::chrono::high_resolution_clock::now();
-
-    cudaDotProduct<<<grid, block, shared_mem_size>>>(data, &data[0], d_product_temp, n, d);
-    cudaMemcpy(h_product_temp, d_product_temp, temp_product_size, cudaMemcpyDeviceToHost);
-    printData(h_product_temp, block_size_x * grid_size_x, grid_size_y);
-
-    // reduce sub_product
-    
-    cudaError_t errSync = cudaGetLastError();
-    cudaError_t errAsync = cudaDeviceSynchronize();
-    
-
-    auto finish = std::chrono::high_resolution_clock::now();
-    auto cpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
-    cout << "Kernal time: " << cpu_time << endl << endl;
+    return split;
 }
 
 
 
-__global__ void cudaDotProduct(float *data, float *point, float *product, int n, int d){
+
+
+void parallelReduce(float *distances, float *data, int n, int d){
+    float *d_product_temp = NULL;
+
+    BestSplit b_split = findBestSplit(n, d);
+    
+
+    
+    // calculate temp block & grid sizes
+    dim3 temp_block;
+    dim3 temp_grid;
+
+    int temp_size_x = b_split.block.x * b_split.grid.x;
+    int temp_size_y = b_split.grid.y;
+    
+
+    temp_block.y = (temp_size_y / 8 + (temp_size_y % 8 != 0)) * 8; 
+    temp_block.x = MAX_BLOCK_THREADS / temp_block.y;
+    temp_grid.x = n / temp_block.x + (n % temp_block.x != 0);
+    temp_grid.y = 1;
+
+    int shared_mem = temp_block.x * temp_block.y * sizeof(float);
+
+
+    #ifdef VERBOSE
+    //cout << "Temp Block: " << temp_block.x << ", " << temp_block.y << endl;
+    //cout << "Temp Grid: " << temp_grid.x << ", " << temp_grid.y << endl;
+    #endif
+    
+    
+
+    int temp_product_size = temp_size_x * temp_size_y * sizeof(float);
+    cudaMalloc(&d_product_temp, temp_product_size); 
+
+   
+    int r = pow(2,ceil(log2(b_split.block.y)));
+    //cout << r << endl;
+    cudaDotProduct<<<b_split.grid, b_split.block, b_split.s_mem>>>(data, &data[0], d_product_temp, n, d, r);
+
+    
+
+    float *h_temp = (float *)malloc(temp_size_x * temp_size_y * sizeof(float));
+    cudaMemcpy(h_temp, d_product_temp, temp_size_x * temp_size_y * sizeof(float),  cudaMemcpyDeviceToHost);
+
+    // //cout << "Printing temp" << endl;
+    // // printData(h_temp, temp_size_x, temp_size_y);
+    // for(int i = 0; i < temp_size_x; i++){
+    //     float sum = 0.0;
+    //     for(int j = 0; j < temp_size_y; j++){
+    //         sum = sum + h_temp[i * temp_size_y + j];
+    //     }
+    //     distances[i] = sqrt(abs(sum));
+    //     //cout << i + 1 << ") " << sqrt(abs(sum)) << endl;
+    // }
+
+
+    r = pow(2,ceil(log2(temp_block.y)));
+    cout << r << endl;
+    cudaReduce<<<temp_grid, temp_block, shared_mem>>>(d_product_temp, distances, n, b_split.grid.y, r);
+    
+
+    cudaError_t errSync = cudaGetLastError();
+    cudaError_t errAsync = cudaDeviceSynchronize();
+
+    #ifdef VERBOSE
+    if (errSync != cudaSuccess)
+		printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
+	if (errAsync != cudaSuccess)
+        printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
+    if (errSync == cudaSuccess && errAsync == cudaSuccess)
+        printf("Kernals succesfully finished without any errors!\n");
+    #endif
+}
+
+
+__global__ void cudaDotProduct(float *data, float *point, float *product, int n, int d, int r){
     // copy dataset and point to shared memory
     extern __shared__ float s_mem[];
-    
+
     int thread_id = threadIdx.x * blockDim.y + threadIdx.y;
     int point_offset = blockDim.x * blockDim.y;
 
     float *s_point = &s_mem[point_offset];
     float *s_data = &s_mem[0];
 
-    // copy point
-    if(thread_id < blockDim.y){
-        s_point[threadIdx.y] =  point[threadIdx.y];
-    }
-    __syncthreads();
-
-
-    // copy data
     int pos_x = blockIdx.x * blockDim.x + threadIdx.x;
     int pos_y = blockIdx.y * blockDim.y + threadIdx.y;
 
+    // IF the thread belongs to the first row and is inside the block dimensions copy the data else if it outfside just zero initialize the array
+    if(thread_id < blockDim.y && pos_y < d){
+        s_point[threadIdx.y] = point[pos_y]; 
+    }else if(thread_id < blockDim.y){
+        s_point[threadIdx.y] = 0.0;
+    }
+
+    // copy data
     if(pos_x < n && pos_y < d){
         s_data[thread_id] = data[pos_x * d + pos_y];
     }else{
         s_data[thread_id] = 0.0;
     }
     
+    __syncthreads();
 
     // calculate dot product
-    s_data[thread_id] = s_data[thread_id] * s_point[threadIdx.y];
-
+    s_data[thread_id] = s_data[thread_id] * s_data[thread_id] - 2 * s_data[thread_id] * s_point[threadIdx.y] + s_point[threadIdx.y] * s_point[threadIdx.y];
+    
+    __syncthreads();
 
     //reduce sum in parallel
-    for(int s = blockDim.y / 2; s > 0; s >>= 1){
-        if(threadIdx.y < s){
+    for(int s = r / 2; s > 0; s >>= 1){
+        if(threadIdx.y < s && (threadIdx.y + s) < d){
             s_data[thread_id] += s_data[thread_id + s];
+        }else{
+            s_data[thread_id] += 0.0;
         }
         __syncthreads();
     }
 
     // copy data back
-    pos_x = (blockIdx.x * blockDim.x) * gridDim.y;
+    pos_x = blockIdx.x * (blockDim.x * gridDim.y);
     pos_y = blockIdx.y;
     if(threadIdx.y == 0){
         product[pos_x + pos_y + threadIdx.x * gridDim.y] = s_data[thread_id];
@@ -305,30 +358,36 @@ __global__ void cudaDotProduct(float *data, float *point, float *product, int n,
 }
 
 
+// complete unroll these iterations
+__global__ void cudaReduce(float *temp, float *distances, int n, int d, int r){
+    extern __shared__ float s_data[];
 
+    int thread_id = threadIdx.x * blockDim.y + threadIdx.y;
+    
+    int pos_x = blockIdx.x * blockDim.x + threadIdx.x;
+    int pos_y = threadIdx.y;
 
+    // copy data to shared memory
+    if(pos_x < n && pos_y < d){
+        s_data[thread_id] = temp[pos_x * d + pos_y];
+    }else{
+        s_data[thread_id] = 0.0;
+    }
 
+    __syncthreads();
 
+    for(int s = r / 2; s > 0; s >>= 1){
+        if(threadIdx.y < s && (threadIdx.y + s) < d){
+            s_data[thread_id] += s_data[thread_id + s];
+        }
+        __syncthreads();
+    }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    // copy back the data
+    if(threadIdx.y == 0 && pos_x < n){
+        distances[pos_x] = s_data[thread_id];
+    }
+}
 
 
 
@@ -392,7 +451,7 @@ __global__ void deviceCalculatedDistances(float *dist, float *data, float *point
             
             if(row_pos < d){
                 float val = data[elements_offset + line_pos + row_pos] - point[row_pos];
-                sum[thread_id] = sum[thread_id] + pow(val, 2);
+                sum[thread_id] = sum[thread_id] + val * val;
             }
         }
 
