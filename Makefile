@@ -1,3 +1,7 @@
-all:
-	nvcc src/main.cu -o test
-	nvcc src/bitonic.cu -o test_bitonic
+CC=nvcc
+HEADER=./inc
+SRC=./src
+TESTS=./tests
+
+all: 
+	$(CC) -o $(TESTS)/test_bitonic $(SRC)/bitonic_test.cu $(SRC)/bitonic.cu -I$(HEADER)
