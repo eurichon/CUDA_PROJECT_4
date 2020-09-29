@@ -24,7 +24,7 @@ using namespace std;
 #define VERBOSE
 
 
-#define ERROR_THRESHOLD     100
+#define ERROR_THRESHOLD     500
 
 const char Result[2][10] = {"SUCCEDED", "FAILED"};
 
@@ -44,7 +44,7 @@ void printData(float *dataset, int n, int d);
 void calculateDistances(float *distances, float *dataset, float *point, int n, int d);
 
 
-void parallelReduce(float *distances, float *data, int n, int d);
+long parallelReduce(float *distances, float *data, int n, int d);
 void serialReduce(float *sum, float *data, int n, int d);
 
 __global__ void deviceCalculatedDistances(float *dist, float *data, float *point, int n, int d);
@@ -135,12 +135,12 @@ int main(int argc, char *argv[]){
     cudaMemcpy(d_point, &d_dataset[0], d * sizeof(float), cudaMemcpyHostToDevice);
 
 
-    start = std::chrono::high_resolution_clock::now();
+    
 
-    parallelReduce(d_distances ,d_dataset, n , d);
+    auto gpu_time = parallelReduce(d_distances ,d_dataset, n , d);
 
-    finish = std::chrono::high_resolution_clock::now();
-    auto gpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start).count();
+    // finish = std::chrono::high_resolution_clock::now();
+    // auto gpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start).count();
 
 
 
@@ -231,8 +231,10 @@ BestSplit findBestSplit(int n, int d){
 
 
 
-void parallelReduce(float *distances, float *data, int n, int d){
+long parallelReduce(float *distances, float *data, int n, int d){
     float *d_product_temp = NULL;
+
+    auto start = std::chrono::high_resolution_clock::now();
 
     BestSplit b_split = findBestSplit(n, d);
     
@@ -271,8 +273,8 @@ void parallelReduce(float *distances, float *data, int n, int d){
 
     
 
-    float *h_temp = (float *)malloc(temp_size_x * temp_size_y * sizeof(float));
-    cudaMemcpy(h_temp, d_product_temp, temp_size_x * temp_size_y * sizeof(float),  cudaMemcpyDeviceToHost);
+    //float *h_temp = (float *)malloc(temp_size_x * temp_size_y * sizeof(float));
+    //cudaMemcpy(h_temp, d_product_temp, temp_size_x * temp_size_y * sizeof(float),  cudaMemcpyDeviceToHost);
 
     // //cout << "Printing temp" << endl;
     // // printData(h_temp, temp_size_x, temp_size_y);
@@ -294,6 +296,9 @@ void parallelReduce(float *distances, float *data, int n, int d){
     cudaError_t errSync = cudaGetLastError();
     cudaError_t errAsync = cudaDeviceSynchronize();
 
+    auto stop = std::chrono::high_resolution_clock::now();
+
+
     #ifdef VERBOSE
     if (errSync != cudaSuccess)
 		printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
@@ -302,6 +307,8 @@ void parallelReduce(float *distances, float *data, int n, int d){
     if (errSync == cudaSuccess && errAsync == cudaSuccess)
         printf("Kernals succesfully finished without any errors!\n");
     #endif
+
+    return  std::chrono::duration_cast<std::chrono::nanoseconds>(stop-start).count();
 }
 
 

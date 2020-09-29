@@ -10,9 +10,12 @@
  #include <stdio.h>
  #include <time.h>
  #include <stdlib.h>
+ #include <iostream>
+ #include <chrono>
+ using namespace std;
  
  /* Every thread gets exactly one value in the unsorted array. */
- #define THREADS 512 // 2^9
+ #define THREADS 1024 // 2^9
  #define BLOCKS 32768 // 2^15
  #define NUM_VALS THREADS*BLOCKS
  
@@ -91,20 +94,38 @@
  
    cudaMalloc((void**) &dev_values, size);
    cudaMemcpy(dev_values, values, size, cudaMemcpyHostToDevice);
- 
+  
+   auto start = std::chrono::high_resolution_clock::now();
+
+
+
    dim3 blocks(BLOCKS,1);    /* Number of blocks   */
    dim3 threads(THREADS,1);  /* Number of threads  */
- 
-   int j, k;
-   /* Major step */
-   for (k = 2; k <= NUM_VALS; k <<= 1) {
-     /* Minor step */
-     for (j=k>>1; j>0; j=j>>1) {
-       bitonic_sort_step<<<blocks, threads>>>(dev_values, j, k);
-     }
-   }
+    int launches = 0;
+    int j, k;
+    /* Major step */
+    for (k = 2; k <= NUM_VALS; k <<= 1) {
+      /* Minor step */
+      for (j=k>>1; j>0; j=j>>1) {
+        bitonic_sort_step<<<blocks, threads>>>(dev_values, j, k);
+        launches++;
+      }
+    }
+
+    cudaError_t errSync = cudaGetLastError();
+    cudaError_t errAsync = cudaDeviceSynchronize();
+
+
+
+   auto finish = std::chrono::high_resolution_clock::now();
+   auto gpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start).count();
+   cout << " GPU time: " << gpu_time <<  " with " << launches << endl;
+
+
    cudaMemcpy(values, dev_values, size, cudaMemcpyDeviceToHost);
    cudaFree(dev_values);
+
+
  }
  
  int main(void)
@@ -114,11 +135,19 @@
     float *values = (float*) malloc( NUM_VALS * sizeof(float));
 
     array_fill(values, NUM_VALS);
-    start = clock();
+    
     bitonic_sort(values); /* Inplace */
-    stop = clock();
-    print_elapsed(start, stop);
+    
 
+    bool success = true;
+    for(long i = 1; i <  NUM_VALS; i++){
+      if(values[i-1] > values[i]){
+        success = false;
+        break;
+      }
+    }
+    
+    printf("Result is: %d", success);
 
     array_fill(values, NUM_VALS);
     start = clock();

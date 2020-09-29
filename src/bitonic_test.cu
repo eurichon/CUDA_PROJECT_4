@@ -8,27 +8,43 @@
 using namespace std;
 
 #define MEMORY_ERROR        -1
-#define MIN_VALUE          -100.0
-#define MAX_VALUE           100.0
-
-#define FREE               -1
-#define FORCED              0
+#define MIN_VALUE          -1000.0
+#define MAX_VALUE           1000.0
 
 #define ASCENDING           1
 #define DESCENDING          0
 
-int bitonic(float *h_data, int n, int dir);
+long bitonic(float *h_data, int n, int dir);
 
 // testing
-void serialBitonicGrid(int thread,float *d, int n, int step, int dir, int force);
-void serialBlockBitonic(int thread, int block,float *d, int n, int dir, int force, int value);
-void serialBlockBitonicMerge(float *data, int thread_id, int block_id, int step, int dir, int force);
+void serialBitonicGrid(int block, float *d, int step_iter, int curr_step, int dir);
+void serialBlockBitonic(int thread, int block, int dir, int rate);
+
 
 int cmpfunc (const void * a, const void * b) {
     float fa = *(const float*) a;
     float fb = *(const float*) b;
     return (fa > fb) - (fa < fb);
 }
+
+
+
+void initArray(float *data, int n){
+    if(data == NULL){
+        cout << "Not enough memory. Aborting ..." << endl;
+        free(data);
+        exit(MEMORY_ERROR);
+    }else{
+        unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+        default_random_engine generator(seed);
+        uniform_real_distribution<float> distribution(MIN_VALUE, MAX_VALUE);
+
+        for(int i = 0; i < n; i++){
+            data[i] = distribution(generator);
+        }
+    }
+}
+
 
 
 
@@ -39,26 +55,12 @@ int main(int argc, char *argv[]){
     int step = atoi(argv[3]);
 
     float *h_data; 
-
-    //create and populate host dataset
     h_data = (float *)malloc(n * sizeof(float));
-    if(h_data == NULL){
-        cout << "Not enough memory. Aborting ..." << endl;
-        free(h_data);
-        return MEMORY_ERROR;
-    }else{
-        unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-        default_random_engine generator(seed);
-        uniform_real_distribution<float> distribution(MIN_VALUE, MAX_VALUE);
-
-        for(int i = 0; i < n; i++){
-            h_data[i] = distribution(generator);
-        }
-    }
+    initArray(h_data, n);
 
    
     
-    int gpu_time = bitonic(h_data, n, dir);
+    long gpu_time = bitonic(h_data, n, dir);
 
 
     // check
@@ -80,29 +82,52 @@ int main(int argc, char *argv[]){
         
     }
 
+    // for(int i = 2000; i < 2100;  i++){
+    //     cout << i << ")" << h_data[i] << endl;
+    // }
+
+
+
+
+
+    initArray(h_data, n);
+
+
     auto start = std::chrono::high_resolution_clock::now();
     
     qsort(h_data, n, sizeof(float), cmpfunc);
 
     auto finish = std::chrono::high_resolution_clock::now();
-    auto cpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start).count();
+    long cpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start).count();
     cout << "Quicksort CPU time: " << cpu_time << endl;
 
     cout << "The result is: " << success << endl;
-    cout << "Speed up: " << (float)cpu_time / gpu_time << endl;
+    cout << "Speed up: " << (double)cpu_time / gpu_time << endl;
+    
     
     
 
-    //test serially the logic 
+    // //test serially the logic 
     // cout << "Free" << endl;
     // for(int i = 0; i < n/2; i++)
-    //     serialBitonicGrid(i, NULL, n, step, dir, FREE);
+    //     serialBlockBitonic(1, i, dir, step);
     // cout << endl;
 
     // cout << "Forced" << endl;
-    // for(int i = 0; i < n/2; i++)
-    //     serialBitonicGrid(i, NULL, n, step, dir, FORCED);
-    //     cout << endl;
+
+    // for(int j = 1; j <= n/2; j <<= 1){
+    //     for(int k = j; k >= 1; k >>= 1){
+    //         for(int i = 0; i < n/2; i++)
+    //             serialBitonicGrid(i, NULL, j, k, dir);
+
+    //         cout << endl;
+    //     }
+    //     cout << "========" << endl;
+    // }
+
+    
+
+        
 
     // cout << "Free" << endl;
     // for(int i = 0; i < n/2; i++)
@@ -121,45 +146,44 @@ int main(int argc, char *argv[]){
 
 
 
-int bitonic(float *h_data, int n, int dir){
+long bitonic(float *h_data, int n, int dir){
     float *d_data = NULL;
 
+
     
+
     cudaMalloc(&d_data, n * sizeof(float));
     cudaMemcpy(d_data, h_data, n * sizeof(float), cudaMemcpyHostToDevice);
 
-    auto start = std::chrono::high_resolution_clock::now();
 
+
+    auto start = std::chrono::high_resolution_clock::now();
+    int lanuch = 0;
 
     if(n <= 2048){
         dim3 grid(1, 1);
         dim3 block((n / 2), 1);
         int shared_mem = n * sizeof(float);
-        cudaBlockBitonic<<<grid, block, shared_mem>>>(d_data, n, dir, FREE, 0);
+        cudaBlockBitonic<<<grid, block, shared_mem>>>(d_data, n, dir);
     }else{
         dim3 grid(n / 2048, 1);
         dim3 block(1024, 1);
         int shared_mem = 2048 * sizeof(float);
 
-        // cudaBlockBitonic<<<grid, block, shared_mem>>>(d_data, 2048, dir, FREE, 0);
-
-        // cudaGridBitonic<<<grid, block, shared_mem>>>(d_data, n, 2048, dir, FREE);
-        // cudaBlockBitonic<<<grid, block, shared_mem>>>(d_data, 2048, dir, FORCED, 2);
-
-        // cudaGridBitonic<<<grid, block, shared_mem>>>(d_data, n, 4096, dir, FORCED);
-        // cudaBlockBitonic<<<grid, block, shared_mem>>>(d_data, 2048, dir, FORCED, 4);
-
-        cudaBlockBitonic<<<grid, block, shared_mem>>>(d_data, 2048, dir, FREE, 0);
-
-        for(int s = 2048; s < n/2; s <<= 1){
-            cudaGridBitonic<<<grid, block, shared_mem>>>(d_data, n, s, dir, FREE);
-            cudaBlockBitonic<<<grid, block, shared_mem>>>(d_data, 2048, dir, FORCED, s / 1024);
+       
+        for(int s = 4; s <= n; s <<= 1){
+            for(int s2 = s; s2 > 0; s2 >>= 1){
+                cudaGridBitonic<<<grid, block>>>(d_data, n, s, s2, dir);
+            
+                lanuch++;
+            }
+            
         }
-
-        cudaGridBitonic<<<grid, block, shared_mem>>>(d_data, n, n/2, dir, FORCED);
-        cudaBlockBitonic<<<grid, block, shared_mem>>>(d_data, 2048, dir, FORCED, n / 2048);        
+        
     }
-    
+
+    cout << "launches " << lanuch << endl;
+
     cudaError_t errSync = cudaGetLastError();
     cudaError_t errAsync = cudaDeviceSynchronize();
 
@@ -170,6 +194,8 @@ int bitonic(float *h_data, int n, int dir){
 
 
     cudaMemcpy(h_data, d_data, n * sizeof(float), cudaMemcpyDeviceToHost);
+    
+
     
 
     if (errSync != cudaSuccess)
@@ -190,45 +216,22 @@ int bitonic(float *h_data, int n, int dir){
 
 
 
-void serialBitonicGrid(int thread,float *d, int n, int step, int dir, int force){
-    //extern __shared__ float s_mem[];
+void serialBitonicGrid(int block, float *d, int step_iter, int curr_step, int dir){
 
-    int thread_id = thread;
-    bool flag = 1;
-    int c_dir;
+    // calculate thread id in the grid
+    // int thread_id = blockIdx.x * blockDim.x + threadIdx.x;
+    int thread = block;
 
-    for(int s = step; s >= 2; s >>= 1){ 
-        int power_step = (s << 1);
-        int a = thread_id / s;
-        int b = thread_id % s;
-        int pos = a * power_step + b;
-        if(flag){
-            c_dir = dir;
+    int offset = (curr_step << 1);
+    int a = thread / curr_step;
+    int b = thread % curr_step;
+    int pos = a * offset + b;
+    
+    int c_dir = ((thread / step_iter) % 2) != dir;
 
-            if(force == -1)
-                c_dir = (a % 2 != dir); // to check
+    cout << "Thread: " << thread << " [" << pos << ", " << pos + curr_step << "]  dir= " << c_dir << endl;
 
-            flag = 0;
-        }
-        
-
-        // copy data
-        cout << "Thread: " << thread_id << " [" << pos << ", " << pos + s << "]  dir= " << c_dir << endl;
-
-        // s_mem[threadIdx.x] = d[pos];
-        // s_mem[threadIdx.x + blockDim.x] = d[pos + s];
-
-        // __syncthreads();
-
-        // // relative call to gshared memory
-        // cudaCompAndSwap(s_mem, (threadIdx.x), (threadIdx.x + blockDim.x), c_dir);
-
-        // __syncthreads();
-
-        // // copy data
-        // d[pos] = s_mem[threadIdx.x];
-        // d[pos + s] = s_mem[threadIdx.x + blockDim.x];
-    }
+    // cudaCompAndSwap(d, pos, (pos + curr_step), c_dir);  // to do it manually
 }
 
 
@@ -237,62 +240,29 @@ void serialBitonicGrid(int thread,float *d, int n, int step, int dir, int force)
 
 
 
-void serialBlockBitonic(int thread, int block, float *d, int n, int dir, int force, int value){
-    //extern __shared__ float s_mem[];
+void serialBlockBitonic(int thread, int block, int dir, int rate){
+    // extern __shared__ float s_mem[];
 
     // int offset = blockIdx.x * (2 * blockDim.x);
-    
+
     // // copy data from global memory to the shared memory
     // s_mem[threadIdx.x] = d[threadIdx.x + offset];
     // s_mem[blockDim.x + threadIdx.x] = d[blockDim.x + threadIdx.x + offset];
-
+    thread = block;
+    int c_dir = ((block & rate) == 0)?(dir):(!dir);
     
-    if(force == -1){
-        // used for normal sorting for 1 block up to 2048 or n blocks of 2048 elements
-        for(int step = 1; step <= n/2; step <<= 1){
-            serialBlockBitonicMerge(NULL, thread, block, step, dir, force);
-        }
-    }else{
-        // used as a complement to merge the blocks when elements are less than 2048 and can fit into a block
-        // calculate current direction
-        int n_dir;
-        if(dir){
-            n_dir = ((block & value) > 0)?(0):(1);
-        }else{
-            n_dir = ((block & value) > 0)?(1):(0);
-        }
-        serialBlockBitonicMerge(NULL, thread, block, n/2, n_dir, force);
-    }
-}
-
-void serialBlockBitonicMerge(float *data, int thread_id, int block_id, int step, int dir, int force){
-    int power_step = step << 1;
-    int a = thread_id / step;
-    int b = thread_id % step;
-    int pos = a * power_step + b;
-    int c_dir = dir;
-
-    if(force == -1){
-        if(dir == 1){
-            c_dir = (a % 2 == (block_id % 2));
-        }else{
-            c_dir = (a % 2 != (block_id % 2));
-        }
-    }
-    cout << "Thread: " << block_id << " [" << pos << ", " << pos + step << "]  dir= " << c_dir << endl;
-
-    //cudaCompAndSwap(data, pos, pos + step, c_dir);
-
-    while(step >= 2){
-        step = step >> 1;
-        power_step = power_step >> 1;
-        a = thread_id / step;
-        b = thread_id % step;
-        pos = a * power_step + b;
+    for(unsigned int s = 1; s >= 1; s >>= 1){
         
-        //__syncthreads();
-        //udaCompAndSwap(data, pos, pos + step, c_dir);          
-        cout << "Thread: " << thread_id << " [" << pos << ", " << pos + step << "]  dir= " << c_dir << endl;
-  
-    }
+
+        int step = s;
+        int a = thread / s;
+        int b = thread % s;
+        int pos = a * (step << 1) + b;
+
+        cout << "Thread: " << thread << " [" << pos << ", " << pos + s << "]  dir= " << c_dir << endl;
+        
+        // __syncthreads();
+        // cudaCompAndSwap(s_mem, pos, pos + step, c_dir);
+    }     
 }
+
