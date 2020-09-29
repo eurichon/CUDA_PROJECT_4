@@ -17,9 +17,9 @@ void createVPTree(float *dataset, int n, int d){
 
     initIndexes(d_indexes, n);
 
-    
+
     auto start = std::chrono::high_resolution_clock::now();
-    parallelReduce(d_distances, d_dataset, n, d);
+    parallelReduce(d_distances, d_dataset, d_indexes, n, d, 2);
     auto finish = std::chrono::high_resolution_clock::now();
     auto gpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
     cout << "Gpu: " << gpu_time << endl; 
@@ -46,7 +46,6 @@ void initIndexes(float *d, int n){
         printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
         exit(ASYNC_CUDA_ERROR);
     }
-    
 }
 
 

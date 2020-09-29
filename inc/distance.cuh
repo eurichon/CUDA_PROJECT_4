@@ -21,10 +21,10 @@ typedef struct{
 
 BestSplit findBestSplit(int n, int d);
 
-void parallelReduce(float *distances, float *data, int n, int d);
+void parallelReduce(float *distances, float *data, float *index_map, int n, int d, int iter);
 
 __global__ void cudaReduce(float *temp, float *distances, int n, int d, int r);
-__global__ void cudaDotProduct(float *dataset, float *point, float *product, int n, int d, int r);
+__global__ void cudaDotProduct(float *dataset, float *index_map, float *product, int n, int d, int r, int iter);
 
 
 

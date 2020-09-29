@@ -12,7 +12,6 @@
 #include "distance.cuh"
 using namespace std;
 
-
 #define ASYNC_CUDA_ERROR            -3
 #define SYNCH_CUDA_ERROR            -4
 

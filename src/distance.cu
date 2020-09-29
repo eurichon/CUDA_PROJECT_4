@@ -44,7 +44,7 @@ BestSplit findBestSplit(int n, int d){
 
 
 
-void parallelReduce(float *distances, float *data, int n, int d){
+void parallelReduce(float *distances, float *data, float *index_map, int n, int d, int iter){
     float *d_product_temp = NULL;
 
     BestSplit b_split = findBestSplit(n, d);
@@ -68,7 +68,7 @@ void parallelReduce(float *distances, float *data, int n, int d){
     cudaMalloc(&d_product_temp, temp_product_size); 
 
     int r = pow(2,ceil(log2(b_split.block.y)));
-    cudaDotProduct<<<b_split.grid, b_split.block, b_split.s_mem>>>(data, &data[0], d_product_temp, n, d, r);
+    cudaDotProduct<<<b_split.grid, b_split.block, b_split.s_mem>>>(data, index_map, d_product_temp, n, d, r, iter);
 
     r = pow(2,ceil(log2(temp_block.y)));
     
@@ -85,7 +85,7 @@ void parallelReduce(float *distances, float *data, int n, int d){
 }
 
 
-__global__ void cudaDotProduct(float *data, float *point, float *product, int n, int d, int r){
+__global__ void cudaDotProduct(float *data, float *index_map, float *product, int n, int d, int r, int iter){
     // copy dataset and point to shared memory
     extern __shared__ float s_mem[];
 
@@ -98,42 +98,48 @@ __global__ void cudaDotProduct(float *data, float *point, float *product, int n,
     int pos_x = blockIdx.x * blockDim.x + threadIdx.x;
     int pos_y = blockIdx.y * blockDim.y + threadIdx.y;
 
-    // IF the thread belongs to the first row and is inside the block dimensions copy the data else if it outfside just zero initialize the array
-    if(thread_id < blockDim.y && pos_y < d){
-        s_point[threadIdx.y] = point[pos_y]; 
-    }else if(thread_id < blockDim.y){
-        s_point[threadIdx.y] = 0.0;
-    }
-
-    // copy data
     if(pos_x < n && pos_y < d){
-        s_data[thread_id] = data[pos_x * d + pos_y];
-    }else{
-        s_data[thread_id] = 0.0;
-    }
-    
-    __syncthreads();
+        // IF the thread belongs to the first row and is inside the block dimensions copy the data else if it outfside just zero initialize the array
+        int true_pos_x = index_map[pos_x];
 
-    // calculate dot product
-    s_data[thread_id] = s_data[thread_id] * s_data[thread_id] - 2 * s_data[thread_id] * s_point[threadIdx.y] + s_point[threadIdx.y] * s_point[threadIdx.y];
-    
-    __syncthreads();
+        int step = n / iter;
+        int point_pos = (pos_x / step) * step; 
 
-    //reduce sum in parallel
-    for(int s = r / 2; s > 0; s >>= 1){
-        if(threadIdx.y < s && (threadIdx.y + s) < d){
-            s_data[thread_id] += s_data[thread_id + s];
-        }else{
-            s_data[thread_id] += 0.0;
+        if(thread_id < blockDim.y){
+            // add here
+            int true_point_pos = index_map[point_pos];
+            s_point[threadIdx.y] = data[true_point_pos * d + pos_y]; 
+        }else if(thread_id < blockDim.y){
+            s_point[threadIdx.y] = 0.0;
         }
-        __syncthreads();
-    }
 
-    // copy data back
-    pos_x = blockIdx.x * (blockDim.x * gridDim.y);
-    pos_y = blockIdx.y;
-    if(threadIdx.y == 0){
-        product[pos_x + pos_y + threadIdx.x * gridDim.y] = s_data[thread_id];
+        
+        s_data[thread_id] = data[true_pos_x * d + pos_y];
+        
+        
+        __syncthreads();
+
+        // calculate dot product
+        s_data[thread_id] = s_data[thread_id] * s_data[thread_id] - 2 * s_data[thread_id] * s_point[threadIdx.y] + s_point[threadIdx.y] * s_point[threadIdx.y];
+        
+        __syncthreads();
+
+        //reduce sum in parallel
+        for(int s = r / 2; s > 0; s >>= 1){
+            if(threadIdx.y < s && (threadIdx.y + s) < d){
+                s_data[thread_id] += s_data[thread_id + s];
+            }else{
+                s_data[thread_id] += 0.0;
+            }
+            __syncthreads();
+        }
+
+        // copy data back
+        pos_x = blockIdx.x * (blockDim.x * gridDim.y);
+        pos_y = blockIdx.y;
+        if(threadIdx.y == 0){
+            product[pos_x + pos_y + threadIdx.x * gridDim.y] = s_data[thread_id];
+        }
     }
 }
 
