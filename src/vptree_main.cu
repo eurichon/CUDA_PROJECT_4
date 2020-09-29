@@ -34,6 +34,7 @@ int main(int argc, char *argv[]){
     // initialize dataset
     initDataset(&h_dataset, n, d);
 
+    // create tree
     createVPTree(h_dataset, n, d);
 
 

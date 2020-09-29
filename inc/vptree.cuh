@@ -18,12 +18,8 @@ using namespace std;
 void createVPTree(float *dataset, int n, int d);
 void initIndexes(float *d, int n);
 
-__global__ void cudaInitIndexes(float *d, int n);
 
-// void calculateDIstances(float *dataset, float *product, float *indexes, float *distances, int n, int d, int iter);
-// __global__ void cudaCalculateProducts(float *dataset, float *products, float *indexes, int n, int d, int iter);
-// __global__ void cudaReduceGrid(float *products, int n, int d, int step);
-// __global__ void cudaReduceBlock(float *products, float *distances, int n, int d);
+__global__ void cudaInitIndexes(float *d, int n);
 
 
 #endif  // VPTREE_H

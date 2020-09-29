@@ -5,9 +5,14 @@ OBJ=./obj
 LIB=./lib
 TESTS=./tests
 
-all: clean build
+all: clean build_bitonic
 
-build:
+
+build_bitonic:
+	@echo "Building Bitonic example"
+	nvcc $(SRC)/bitonic.cu $(SRC)/bitonic_test.cu -o $(TESTS)/test_bitonic -I$(HEADER) 
+
+build_vp_tree:
 	@echo "Building Object files"	
 	nvcc -c -o $(OBJ)/bitonic.o $(SRC)/bitonic.cu -I$(HEADER) 
 	nvcc -c -o $(OBJ)/vptree.o $(SRC)/vptree.cu -I$(HEADER)
@@ -22,6 +27,7 @@ build:
 	nvcc -o $(TESTS)/vptree $(SRC)/vptree_main.cu $(LIB)/* -I$(HEADER) 
 
 	@echo "Done"
+
 clean:
 	@echo "Removing old copies"
 	$(RM) count $(LIB)/*.a $(OBJ)/*.o $(TESTS)/* 

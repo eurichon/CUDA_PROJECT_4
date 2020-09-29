@@ -58,7 +58,7 @@ int main(int argc, char *argv[]){
     h_data = (float *)malloc(n * sizeof(float));
     initArray(h_data, n);
 
-   
+    
     
     long gpu_time = bitonic(h_data, n, dir);
 
@@ -155,8 +155,6 @@ long bitonic(float *h_data, int n, int dir){
     cudaMalloc(&d_data, n * sizeof(float));
     cudaMemcpy(d_data, h_data, n * sizeof(float), cudaMemcpyHostToDevice);
 
-
-
     auto start = std::chrono::high_resolution_clock::now();
     int lanuch = 0;
 
@@ -166,12 +164,12 @@ long bitonic(float *h_data, int n, int dir){
         int shared_mem = n * sizeof(float);
         cudaBlockBitonic<<<grid, block, shared_mem>>>(d_data, n, dir);
     }else{
-        dim3 grid(n / 2048, 1);
-        dim3 block(1024, 1);
-        int shared_mem = 2048 * sizeof(float);
+        dim3 grid(n/512, 1);
+        dim3 block(512, 1);
 
+       cout << "Grid dimensions: " << n/512 <<endl;
        
-        for(int s = 4; s <= n; s <<= 1){
+        for(int s = 1; s <= n/2; s <<= 1){
             for(int s2 = s; s2 > 0; s2 >>= 1){
                 cudaGridBitonic<<<grid, block>>>(d_data, n, s, s2, dir);
             

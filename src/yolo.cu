@@ -14,6 +14,7 @@
  #include <chrono>
  using namespace std;
  
+ 
  /* Every thread gets exactly one value in the unsorted array. */
  #define THREADS 1024 // 2^9
  #define BLOCKS 32768 // 2^15

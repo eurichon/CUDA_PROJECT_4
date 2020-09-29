@@ -6,58 +6,59 @@
 // IMPROVED SWAP FOR GLOBAL MEMORY
 
 
-__global__ void cudaGridBitonic(float *d, int n, int step_iter, int curr_step, int dir){
-    //extern __shared__ float s_mem[];
-
+__global__ void cudaGridBitonic(float *d, long n, long step_iter, long curr_step, long dir){
     // calculate thread id in the grid
-    int thread_id = blockIdx.x * blockDim.x + threadIdx.x;
+    long thread_id = blockIdx.x * blockDim.x + threadIdx.x;
 
-    int offset = (curr_step << 1);
-    int a = thread_id / curr_step;
-    int b = thread_id % curr_step;
-    int pos = a * offset + b;
+    long offset = (curr_step << 1);
+    long a = thread_id / curr_step;
+    long b = thread_id % curr_step;
+    long pos = a * offset + b;
     
-    int c_dir = ((thread_id / step_iter) % 2) != dir;
+    long c_dir = ((thread_id / step_iter) % 2) != dir;
 
     // manually handle swapping to avoid accessing two 3 times global memory
-    float val_a = d[pos];
-    float val_b = d[pos + curr_step];
+    if((pos + curr_step) < n){
+        float val_a = d[pos];
+        float val_b = d[pos + curr_step];
 
-    if((val_a > val_b) == c_dir){
-        float temp = val_a;
-        d[pos] = val_b;
-        d[pos + curr_step] = temp;
+
+        if((val_a > val_b) == c_dir){
+            float temp = val_a;
+            d[pos] = val_b;
+            d[pos + curr_step] = temp;
+        }
     }
 }
 
 
-__global__ void cudaBlockBitonicReduce(float *d, int n, int rate, int dir){
-    extern __shared__ float s_mem[];
+// __global__ void cudaBlockBitonicReduce(float *d, int n, int rate, int dir){
+//     extern __shared__ float s_mem[];
 
-    int offset = blockIdx.x * (2 * blockDim.x);
+//     int offset = blockIdx.x * (2 * blockDim.x);
 
-    // copy data from global memory to the shared memory
-    s_mem[threadIdx.x] = d[threadIdx.x + offset];
-    s_mem[blockDim.x + threadIdx.x] = d[blockDim.x + threadIdx.x + offset];
+//     // copy data from global memory to the shared memory
+//     s_mem[threadIdx.x] = d[threadIdx.x + offset];
+//     s_mem[blockDim.x + threadIdx.x] = d[blockDim.x + threadIdx.x + offset];
 
-    int c_dir = ((blockIdx.x & rate) == 0)?(dir):(!dir);
+//     int c_dir = ((blockIdx.x & rate) == 0)?(dir):(!dir);
 
-    for(unsigned int s = blockDim.x; s >= 1; s >>= 1){
-        int step = s;
-        int a = threadIdx.x / s;
-        int b = threadIdx.x % s;
-        int pos = a * (step << 1) + b;
+//     for(unsigned int s = blockDim.x; s >= 1; s >>= 1){
+//         int step = s;
+//         int a = threadIdx.x / s;
+//         int b = threadIdx.x % s;
+//         int pos = a * (step << 1) + b;
         
-        __syncthreads();
-        cudaCompAndSwap(s_mem, pos, pos + step, c_dir);
-    }     
+//         __syncthreads();
+//         cudaCompAndSwap(s_mem, pos, pos + step, c_dir);
+//     }     
 
-    __syncthreads();
+//     __syncthreads();
 
-    // copy results from shared memory back to global
-    d[threadIdx.x + offset] = s_mem[threadIdx.x];
-    d[blockDim.x + threadIdx.x + offset] = s_mem[blockDim.x + threadIdx.x];
-}
+//     // copy results from shared memory back to global
+//     d[threadIdx.x + offset] = s_mem[threadIdx.x];
+//     d[blockDim.x + threadIdx.x + offset] = s_mem[blockDim.x + threadIdx.x];
+// }
 
 
 __global__ void cudaBlockBitonic(float *d, int n, int dir){
