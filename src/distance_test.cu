@@ -21,7 +21,7 @@ using namespace std;
 #define MAX_WARPS_BLOCK_Y   16
 #define MIN_WARPS_BLOCK_Y   1
 
-#define VERBOSE
+//#define VERBOSE
 
 
 #define ERROR_THRESHOLD     500
@@ -139,8 +139,9 @@ int main(int argc, char *argv[]){
     #ifdef VERBOSE
     cout << "CPU Time: " << cpu_time << endl;
     cout << "GPU Time: " << gpu_time << endl;
-    cout << "Total Speed up: " << (float)cpu_time / gpu_time << endl;
+    
     #endif
+    cout << "Total Speed up: " << (float)cpu_time / gpu_time << endl;
 
 
     // validation

@@ -30,8 +30,8 @@ int main(int argc, char *argv[]){
         d = atoi(argv[2]);
     }
 
-    cudaGPUDetails();
-    checkGpuMem();
+    //cudaGPUDetails();
+    //checkGpuMem();
 
     // initialize dataset
     initDataset(&h_dataset, n, d);
@@ -42,7 +42,7 @@ int main(int argc, char *argv[]){
     createVPTree(h_dataset, n, d);
     auto finish = std::chrono::high_resolution_clock::now();
     auto gpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
-    cout << "Finished in total of: " << (float)gpu_time/(10e3) << " us" << endl; 
+    cout << "Finished in total of: " << (float)gpu_time/(10e6) << " ms" << endl; 
 
 
     // free resources

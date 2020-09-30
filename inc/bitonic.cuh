@@ -5,7 +5,7 @@
 #include <chrono>
 using namespace std;
 
-//#define GLOBAL_SYNCHRONIZATION
+#define GLOBAL_SYNCHRONIZATION
 
 
 #define CEIL_DIV(x, y)      ((x / y) + (x % y != 0))
