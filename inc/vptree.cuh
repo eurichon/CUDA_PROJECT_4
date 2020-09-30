@@ -17,7 +17,10 @@ using namespace std;
 
 void createVPTree(float *dataset, int n, int d);
 void initIndexes(float *d, int n);
+void copyIndexes(float *dest, float *source, int n);
 
 __global__ void cudaInitIndexes(float *d, int n);
+__global__ void cudaCopyIndexes(float *dest, float *source, int n);
+
 
 #endif  // VPTREE_H

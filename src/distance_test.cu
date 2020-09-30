@@ -362,8 +362,6 @@ __global__ void cudaReduce(float *temp, float *distances, int n, int d, int r){
 }
 
 
-
-
 void calculateDistances(float *distances, float *dataset, float *point, int n, int d){
     float temp;
 

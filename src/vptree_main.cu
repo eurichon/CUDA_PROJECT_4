@@ -12,6 +12,7 @@ using namespace std;
 #define MEMORY_ERROR            -2
 
 void cudaGPUDetails();
+void checkGpuMem();
 void initDataset(float **dataset, unsigned long n, unsigned long d);
 
 
@@ -30,6 +31,7 @@ int main(int argc, char *argv[]){
     }
 
     cudaGPUDetails();
+    checkGpuMem();
 
     // initialize dataset
     initDataset(&h_dataset, n, d);
@@ -108,4 +110,19 @@ void cudaGPUDetails(){
     } 
 
     cout << "*****************************************" << endl << endl << endl;
+}
+
+
+
+void checkGpuMem(){
+    float free_m,total_m,used_m;
+    size_t free_t,total_t;
+
+    cudaMemGetInfo(&free_t,&total_t);
+
+    free_m =(uint)free_t/1048576.0 ;
+    total_m=(uint)total_t/1048576.0;
+    used_m=total_m-free_m;
+
+    cout << "Free mem is:" << free_m <<"MB from a total of: " << total_m << "MB while: "<< used_m <<" MB are already used!" << endl;
 }
