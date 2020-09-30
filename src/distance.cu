@@ -44,7 +44,7 @@ BestSplit findBestSplit(int n, int d){
 
 
 
-void parallelDistance(float *distances, float *data, float *index_map, int n, int d, int iter){
+void parallelDistance(float *distances, float *data, float *index_map, float *vps, int n, int d, int iter){
     float *d_product_temp = NULL;
 
     BestSplit b_split = findBestSplit(n, d);
@@ -68,7 +68,7 @@ void parallelDistance(float *distances, float *data, float *index_map, int n, in
     cudaMalloc(&d_product_temp, temp_product_size); 
 
     int r = pow(2,ceil(log2(b_split.block.y)));
-    cudaDotProduct<<<b_split.grid, b_split.block, b_split.s_mem>>>(data, index_map, d_product_temp, n, d, r, iter);
+    cudaDotProduct<<<b_split.grid, b_split.block, b_split.s_mem>>>(data, index_map, d_product_temp, vps, n, d, r, iter);
 
     r = pow(2,ceil(log2(temp_block.y)));
     
@@ -86,7 +86,7 @@ void parallelDistance(float *distances, float *data, float *index_map, int n, in
 }
 
 
-__global__ void cudaDotProduct(float *data, float *index_map, float *product, int n, int d, int r, int iter){
+__global__ void cudaDotProduct(float *data, float *index_map, float *product, float *vps, int n, int d, int r, int iter){
     // copy dataset and point to shared memory
     extern __shared__ float s_mem[];
 
@@ -107,8 +107,11 @@ __global__ void cudaDotProduct(float *data, float *index_map, float *product, in
         int point_pos = (pos_x / step) * step; 
 
         if(thread_id < blockDim.y){
-            // add here
+            // the first thread of  the first column of block stores the vantage point
             int true_point_pos = index_map[point_pos];
+            if(threadIdx.y == 0 && blockIdx.y == 0)
+                vps[pos_x/step] = true_point_pos;  
+    
             s_point[threadIdx.y] = data[true_point_pos * d + pos_y]; 
         }else if(thread_id < blockDim.y){
             s_point[threadIdx.y] = 0.0;

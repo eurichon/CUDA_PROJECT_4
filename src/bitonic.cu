@@ -39,10 +39,7 @@ long bitonic(float *data, unsigned int n, unsigned int dir){
 void bitonic(float *data, float *index_map, unsigned int n, unsigned int dir,unsigned int iter){
     if(n <= 2048){
         // not implemented on overloaded function
-        dim3 grid(1, 1);
-        dim3 block((n / 2), 1);
-        int shared_mem = n * sizeof(float);
-        cudaBlockBitonic<<<grid, block, shared_mem>>>(data, n, dir);
+        return;
     }else{
         dim3 grid((n / BLOCK_SIZE), 1);
         dim3 block(BLOCK_SIZE, 1);
@@ -121,7 +118,7 @@ __global__ void cudaGridBitonic(float *d, float *index_map, unsigned int n, unsi
 
             // sort index map with respect to the distances
             temp = index_map[pos + subset_offset];
-            index_map[pos] = index_map[pos + curr_step + subset_offset];
+            index_map[pos + subset_offset] = index_map[pos + curr_step + subset_offset];
             index_map[pos + curr_step + subset_offset] = temp;
         }
     }

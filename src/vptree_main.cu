@@ -37,12 +37,12 @@ int main(int argc, char *argv[]){
     initDataset(&h_dataset, n, d);
 
     // create tree
-    cout << "Building tree";
+    cout << "Building tree" << endl;;
     auto start = std::chrono::high_resolution_clock::now();
     createVPTree(h_dataset, n, d);
     auto finish = std::chrono::high_resolution_clock::now();
     auto gpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
-    cout << "   Finished in: " << (float)gpu_time/(10e3) << " us" << endl; 
+    cout << "Finished in total of: " << (float)gpu_time/(10e3) << " us" << endl; 
 
 
     // free resources

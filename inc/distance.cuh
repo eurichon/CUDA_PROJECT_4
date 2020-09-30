@@ -12,7 +12,7 @@ using namespace std;
 #define MAX_WARPS_BLOCK_Y   16
 #define MIN_WARPS_BLOCK_Y   1
 
-//#define GLOBAL_SYNCHRONIZATION
+#define GLOBAL_SYNCHRONIZATION
 
 typedef struct{
     dim3 block;
@@ -23,10 +23,10 @@ typedef struct{
 
 BestSplit findBestSplit(int n, int d);
 
-void parallelDistance(float *distances, float *data, float *index_map, int n, int d, int iter);
+void parallelDistance(float *distances, float *data, float *index_map, float *vps, int n, int d, int iter);
 
 __global__ void cudaReduce(float *temp, float *distances, int n, int d, int r);
-__global__ void cudaDotProduct(float *dataset, float *index_map, float *product, int n, int d, int r, int iter);
+__global__ void cudaDotProduct(float *dataset, float *index_map, float *product, float *vps, int n, int d, int r, int iter);
 
 
 
