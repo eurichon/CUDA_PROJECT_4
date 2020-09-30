@@ -44,7 +44,7 @@ BestSplit findBestSplit(int n, int d){
 
 
 
-void parallelReduce(float *distances, float *data, float *index_map, int n, int d, int iter){
+void parallelDistance(float *distances, float *data, float *index_map, int n, int d, int iter){
     float *d_product_temp = NULL;
 
     BestSplit b_split = findBestSplit(n, d);
@@ -73,15 +73,16 @@ void parallelReduce(float *distances, float *data, float *index_map, int n, int 
     r = pow(2,ceil(log2(temp_block.y)));
     
     cudaReduce<<<temp_grid, temp_block, shared_mem>>>(d_product_temp, distances, n, b_split.grid.y, r);
-    
+
+    #ifndef GLOBAL_SYNCHRONIZATION
     cudaError_t errSync = cudaGetLastError();
     cudaError_t errAsync = cudaDeviceSynchronize();
 
-    
     if (errSync != cudaSuccess)
-		printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
+        cout << "Sync kernel error: " << cudaGetErrorString(errSync) << " in parallel reduce at iter: "<< iter << endl;
 	if (errAsync != cudaSuccess)
-        printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
+        cout << "Sync kernel error: " << cudaGetErrorString(errAsync) << " in parallel reduce at iter: "<< iter << endl;
+    #endif
 }
 
 

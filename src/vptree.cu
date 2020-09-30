@@ -8,6 +8,8 @@ void createVPTree(float *dataset, int n, int d){
 
     unsigned long length = n * d;
 
+    // to do create tree array to store indexes
+
     // transfer dataset to device
     cudaMalloc(&d_dataset, length * sizeof(float));         // keeps the dataset
     cudaMalloc(&d_distances, n * sizeof(float));            // keeps the current distance results in each level
@@ -17,13 +19,23 @@ void createVPTree(float *dataset, int n, int d){
 
     initIndexes(d_indexes, n);
 
+    
+    for(int i = 1; i <= n/2; i <<= 1){
+        parallelDistance(d_distances, d_dataset, d_indexes, n, d, i);
+        // store indexes & medieans on each level
+        bitonic(d_distances, d_indexes, n, ASCENDING, i);
+        cout << ".";
+    }
+    
+    #ifdef GLOBAL_SYNCHRONIZATION
+    cudaError_t errSync = cudaGetLastError();
+    cudaError_t errAsync = cudaDeviceSynchronize();
 
-    auto start = std::chrono::high_resolution_clock::now();
-    parallelReduce(d_distances, d_dataset, d_indexes, n, d, 2);
-    auto finish = std::chrono::high_resolution_clock::now();
-    auto gpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
-    cout << "Gpu: " << gpu_time << endl; 
-
+    if (errSync != cudaSuccess)
+        cout << "Sync kernel error: " << cudaGetErrorString(errSync) << " in vp tree" << endl;
+	if (errAsync != cudaSuccess)
+        cout << "Sync kernel error: " << cudaGetErrorString(errAsync) << " in vp tree" << endl;
+    #endif
 
     cudaFree(d_dataset);
     cudaFree(d_distances);
@@ -34,16 +46,16 @@ void createVPTree(float *dataset, int n, int d){
 void initIndexes(float *d, int n){
     dim3 block(512, 1);
     dim3 grid(CEIL_DIV(n, 512), 1);
-    cudaInitIndexes<<<block, grid>>>(d, n);
+    cudaInitIndexes<<<grid, block>>>(d, n);
     cudaError_t errSync = cudaGetLastError();
     cudaError_t errAsync = cudaDeviceSynchronize();
     if (errSync != cudaSuccess){
-        printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
+        cout << "Sync kernel error: " << cudaGetErrorString(errSync) << " in init indexing reduce: " << endl;
         exit(SYNCH_CUDA_ERROR);
     }
 		
 	if (errAsync != cudaSuccess){
-        printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
+        cout << "Sync kernel error: " << cudaGetErrorString(errSync) << " in init indexing: " << endl;
         exit(ASYNC_CUDA_ERROR);
     }
 }

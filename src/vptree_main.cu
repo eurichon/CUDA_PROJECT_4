@@ -35,7 +35,12 @@ int main(int argc, char *argv[]){
     initDataset(&h_dataset, n, d);
 
     // create tree
+    cout << "Building tree";
+    auto start = std::chrono::high_resolution_clock::now();
     createVPTree(h_dataset, n, d);
+    auto finish = std::chrono::high_resolution_clock::now();
+    auto gpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
+    cout << "   Finished in: " << (float)gpu_time/(10e3) << " us" << endl; 
 
 
     // free resources
@@ -68,7 +73,8 @@ void initDataset(float **dataset, unsigned long n, unsigned long d){
     }
 
     cout << "Dataset initialized succesfully" << endl;
-}__global__ void cudaInitIndexes(float *d, int n);
+}
+
 
 void cudaGPUDetails(){
     int n_devices;

@@ -5,12 +5,7 @@ OBJ=./obj
 LIB=./lib
 TESTS=./tests
 
-all: clean build_bitonic
-
-
-build_bitonic:
-	@echo "Building Bitonic example"
-	nvcc $(SRC)/bitonic.cu $(SRC)/bitonic_test.cu -o $(TESTS)/test_bitonic -I$(HEADER) 
+all: clean build_vp_tree build_bitonic_test build_distance_test
 
 build_vp_tree:
 	@echo "Building Object files"	
@@ -26,7 +21,17 @@ build_vp_tree:
 	@echo "Link & Compile Project"
 	nvcc -o $(TESTS)/vptree $(SRC)/vptree_main.cu $(LIB)/* -I$(HEADER) 
 
-	@echo "Done"
+	@echo "------------------ Finished vp tree ------------------"
+
+build_bitonic_test:
+	@echo "Building Bitonic example"
+	nvcc $(SRC)/bitonic.cu $(SRC)/bitonic_test.cu -o $(TESTS)/test_bitonic -I$(HEADER) 
+	@echo "------------------ Finished parallel bitonic test ------------------"
+
+build_distance_test:
+	@echo "Building Distance example"
+	nvcc  $(SRC)/distance_test.cu -o $(TESTS)/test_distance 
+	@echo "------------------ Finished parallel distance test ------------------"
 
 clean:
 	@echo "Removing old copies"

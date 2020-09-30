@@ -18,8 +18,6 @@ using namespace std;
 void createVPTree(float *dataset, int n, int d);
 void initIndexes(float *d, int n);
 
-
 __global__ void cudaInitIndexes(float *d, int n);
-
 
 #endif  // VPTREE_H

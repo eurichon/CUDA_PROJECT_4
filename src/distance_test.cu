@@ -38,25 +38,23 @@ typedef struct{
 
 BestSplit findBestSplit(int n, int d);
 
-
-void cudaGPUDetails();
 void printData(float *dataset, int n, int d);
 void calculateDistances(float *distances, float *dataset, float *point, int n, int d);
-
-
-long parallelReduce(float *distances, float *data, int n, int d);
-void serialReduce(float *sum, float *data, int n, int d);
-
-__global__ void deviceCalculatedDistances(float *dist, float *data, float *point, int n, int d);
-
+void parallelDistance(float *distances, float *data, int n, int d);
 
 __global__ void cudaReduce(float *temp, float *distances, int n, int d, int r);
 __global__ void cudaDotProduct(float *dataset, float *point, float *product, int n, int d, int r);
+// void serialReduce(float *sum, float *data, int n, int d);
+
+// __global__ void deviceCalculatedDistances(float *dist, float *data, float *point, int n, int d);
+
+
+
 
 
 int main(int argc, char *argv[]){
     // show cuda gpu details
-    cudaGPUDetails();
+    
 
     int d;      // number of dimensions
     int n;      // number of points
@@ -86,8 +84,6 @@ int main(int argc, char *argv[]){
 
     // creating the Random dataset
     h_dataset = (float *)malloc(n * d * sizeof(float));
-
-
     
 
 
@@ -119,12 +115,6 @@ int main(int argc, char *argv[]){
     auto finish = std::chrono::high_resolution_clock::now();
     auto cpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
 
-    // cout << "Dataset" << endl;
-    // printData(h_dataset, n, d);
-    // cout << "Distances by CPU" << endl;
-    //printData(h_test_distances, n, 1);
-
-
     // cuda stuff
     cudaMalloc(&d_dataset, n * d * sizeof(float)); 
     cudaMalloc(&d_point, d * sizeof(float)); 
@@ -135,13 +125,10 @@ int main(int argc, char *argv[]){
     cudaMemcpy(d_point, &d_dataset[0], d * sizeof(float), cudaMemcpyHostToDevice);
 
 
-    
-
-    auto gpu_time = parallelReduce(d_distances ,d_dataset, n , d);
-
-    // finish = std::chrono::high_resolution_clock::now();
-    // auto gpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start).count();
-
+    start = std::chrono::high_resolution_clock::now();
+    parallelDistance(d_distances ,d_dataset, n , d);
+    finish = std::chrono::high_resolution_clock::now();
+    auto gpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
 
 
     // copy the calculated distances back to the host
@@ -219,9 +206,9 @@ BestSplit findBestSplit(int n, int d){
 
 
     #ifdef VERBOSE
-    //cout << "Block: " << split.block.x << ", " << split.block.y << ", " << (split.block.x + 1) * split.block.y << endl;
-    //cout << "Grid: " << split.grid.x << ", " << split.grid.y << endl;
-    //cout << "Occupancy: " << (float)n / (split.block.x * split.grid.x) << ", " << (float)d / (split.block.y * split.grid.y) << endl;
+    cout << "Block: " << split.block.x << ", " << split.block.y << ", " << (split.block.x + 1) * split.block.y << endl;
+    cout << "Grid: " << split.grid.x << ", " << split.grid.y << endl;
+    cout << "Occupancy: in x: " << (float)n / (split.block.x * split.grid.x) << ", in y: " << (float)d / (split.block.y * split.grid.y) << endl;
     #endif
     
     return split;
@@ -231,10 +218,8 @@ BestSplit findBestSplit(int n, int d){
 
 
 
-long parallelReduce(float *distances, float *data, int n, int d){
+void parallelDistance(float *distances, float *data, int n, int d){
     float *d_product_temp = NULL;
-
-    auto start = std::chrono::high_resolution_clock::now();
 
     BestSplit b_split = findBestSplit(n, d);
     
@@ -257,39 +242,21 @@ long parallelReduce(float *distances, float *data, int n, int d){
 
 
     #ifdef VERBOSE
-    //cout << "Temp Block: " << temp_block.x << ", " << temp_block.y << endl;
-    //cout << "Temp Grid: " << temp_grid.x << ", " << temp_grid.y << endl;
+    cout << "Temp Block: " << temp_block.x << ", " << temp_block.y << endl;
+    cout << "Temp Grid: " << temp_grid.x << ", " << temp_grid.y << endl;
     #endif
     
     
-
     int temp_product_size = temp_size_x * temp_size_y * sizeof(float);
     cudaMalloc(&d_product_temp, temp_product_size); 
 
    
     int r = pow(2,ceil(log2(b_split.block.y)));
-    //cout << r << endl;
+    
     cudaDotProduct<<<b_split.grid, b_split.block, b_split.s_mem>>>(data, &data[0], d_product_temp, n, d, r);
 
-    
-
-    //float *h_temp = (float *)malloc(temp_size_x * temp_size_y * sizeof(float));
-    //cudaMemcpy(h_temp, d_product_temp, temp_size_x * temp_size_y * sizeof(float),  cudaMemcpyDeviceToHost);
-
-    // //cout << "Printing temp" << endl;
-    // // printData(h_temp, temp_size_x, temp_size_y);
-    // for(int i = 0; i < temp_size_x; i++){
-    //     float sum = 0.0;
-    //     for(int j = 0; j < temp_size_y; j++){
-    //         sum = sum + h_temp[i * temp_size_y + j];
-    //     }
-    //     distances[i] = sqrt(abs(sum));
-    //     //cout << i + 1 << ") " << sqrt(abs(sum)) << endl;
-    // }
-
-
     r = pow(2,ceil(log2(temp_block.y)));
-    cout << r << endl;
+    // cout << r << endl;
     cudaReduce<<<temp_grid, temp_block, shared_mem>>>(d_product_temp, distances, n, b_split.grid.y, r);
     
 
@@ -307,8 +274,6 @@ long parallelReduce(float *distances, float *data, int n, int d){
     if (errSync == cudaSuccess && errAsync == cudaSuccess)
         printf("Kernals succesfully finished without any errors!\n");
     #endif
-
-    return  std::chrono::duration_cast<std::chrono::nanoseconds>(stop-start).count();
 }
 
 
@@ -399,17 +364,6 @@ __global__ void cudaReduce(float *temp, float *distances, int n, int d, int r){
 
 
 
-
-
-
-
-
-
-
-
-
-
-
 void calculateDistances(float *distances, float *dataset, float *point, int n, int d){
     float temp;
 
@@ -434,83 +388,4 @@ void printData(float *dataset, int n, int d){
         }
         cout << dataset[(i + 1) * d - 1] << endl;
     }
-}
-
-
-__global__ void deviceCalculatedDistances(float *dist, float *data, float *point, int n, int d){
-    __shared__ float sum[256];
-
-    int thread_id = threadIdx.x * blockDim.y + threadIdx.y;
-    int block_id = blockIdx.x * gridDim.y + blockIdx.y;
-
-    int elements_per_block = blockDim.x * d;
-    int elements_offset = block_id * elements_per_block;
-
-    int iterations = d / blockDim.y + (d % blockDim.y != 0);        // add +1 if the division is not perfect
-    
-    sum[thread_id] = 0;
-
-    int line_pos = threadIdx.x * d;
-
-    if(line_pos + elements_offset < n * d){
-        for(int i = 0; i < iterations; i++){
-            int row_pos = i * blockDim.y + threadIdx.y;
-            
-            if(row_pos < d){
-                float val = data[elements_offset + line_pos + row_pos] - point[row_pos];
-                sum[thread_id] = sum[thread_id] + val * val;
-            }
-        }
-
-        __syncthreads();
-
-        // reduction of sum
-        for(int i = blockDim.y/2; i > 0; i >>= 1){
-            if(threadIdx.y < i){
-                sum[thread_id] += sum[thread_id + i];
-            }     
-            __syncthreads();
-        }
-
-        if(thread_id % 8 == 0){
-            dist[block_id * blockDim.x + thread_id/8] = sqrt((double)sum[thread_id]);
-        }
-    }
-}
-
-
-
-
-void cudaGPUDetails(){
-    int n_devices;
-    cudaGetDeviceCount(&n_devices);
-
-    cout << "******** Getting GPU information ********" << endl;
-
-    for (int dev = 0; dev < n_devices; dev++) {
-        cudaDeviceProp device_prop;
-        cudaGetDeviceProperties(&device_prop, dev);
-
-        if(n_devices == 0){
-            if(device_prop.major == 9999 && device_prop.minor == 9999){
-                cout << "No Cuda GPU has been detected" << endl;
-                exit(-1);
-            }else if(n_devices == 1){
-                cout << "Found 1 device supporting CUDA" << endl;
-            }else{
-                cout << "There are " << n_devices << " supporting CUDA" << endl;
-            }
-        }
-
-        cout << "Device " << dev << " name: " << device_prop.name << endl;
-        cout << "Computatial Capabilities " << device_prop.major << "." << device_prop.minor << endl;
-        cout << "Maximum global memory size: " << device_prop.totalGlobalMem << endl;
-        cout << "Maximum Constant memory size: " << device_prop.totalConstMem << endl;
-        cout << "Maximun shared memory size per block: " << device_prop.sharedMemPerBlock << endl;
-        cout << "Maximum block dimensions: " << device_prop.maxThreadsDim[0] << " x " << device_prop.maxThreadsDim[1] << " x " << device_prop.maxThreadsDim[2] << endl;
-        cout << "Maximum grid dimensions: " << device_prop.maxGridSize[0] << " x " << device_prop.maxGridSize[1] << " x " << device_prop.maxGridSize[2] << endl;
-        cout << "Warp size: " << device_prop.warpSize << endl;
-    } 
-
-    cout << "*****************************************" << endl << endl << endl;
 }
